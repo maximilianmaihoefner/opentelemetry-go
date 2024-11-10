@@ -94,7 +94,7 @@ func (h Hook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
 		TraceFlags:           &traceFlags,
 		SeverityText:         &severityText,
 		SeverityNumber:       &severityNumber,
-		Body:                 &msg,
+		BodyAny:              &msg,
 		Resource:             nil,
 		InstrumentationScope: &instrumentationScope,
 		Attributes:           &attributes,
