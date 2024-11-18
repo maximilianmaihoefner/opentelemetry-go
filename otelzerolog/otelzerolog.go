@@ -22,12 +22,11 @@ import (
 	"reflect"
 	"time"
 
-	otel "github.com/agoda-com/opentelemetry-logs-go/logs" // use otel so that when otel is stable, we can just change the import path
 	"github.com/rs/zerolog"
-	"go.opentelemetry.io/otel/attribute"
+	logs "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdk "go.opentelemetry.io/otel/sdk/log"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -41,15 +40,15 @@ var instrumentationScope = instrumentation.Scope{
 }
 
 type Hook struct {
-	otel.Logger
+	logs.Logger
 }
 
 var _ zerolog.Hook = (*Hook)(nil)
 
-func NewHook(loggerProvider otel.LoggerProvider) *Hook {
+func NewHook(loggerProvider *sdk.LoggerProvider) *Hook {
 	logger := loggerProvider.Logger(
 		instrumentationScope.Name,
-		otel.WithInstrumentationVersion(instrumentationScope.Version),
+		logs.WithInstrumentationVersion(instrumentationScope.Version),
 	)
 	return &Hook{logger}
 }
@@ -60,19 +59,19 @@ func (h Hook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
 	}
 
 	ctx := e.GetCtx()
-	span := trace.SpanFromContext(ctx).SpanContext()
+	//span := trace.SpanFromContext(ctx).SpanContext()
 
-	var spanID trace.SpanID
-	var traceID trace.TraceID
-	var traceFlags trace.TraceFlags
-	if span.IsValid() {
-		spanID = span.SpanID()
-		traceID = span.TraceID()
-		traceFlags = span.TraceFlags()
-	}
+	//var spanID trace.SpanID
+	//var traceID trace.TraceID
+	//var traceFlags trace.TraceFlags
+	//if span.IsValid() {
+	//	spanID = span.SpanID()
+	//	traceID = span.TraceID()
+	//	traceFlags = span.TraceFlags()
+	//}
 
 	now := time.Now()
-	severityText := otelLevelText(level)
+	//severityText := otelLevelText(level)
 	severityNumber := otelLevelNumber(level)
 
 	logData := make(map[string]interface{})
@@ -81,25 +80,31 @@ func (h Hook) Run(e *zerolog.Event, level zerolog.Level, msg string) {
 	_ = json.Unmarshal([]byte(ev), &logData)
 
 	// TODO: this is very hacky, but it works for now
-	var attributes []attribute.KeyValue
+	var attributes []logs.KeyValue
 	for k, v := range logData {
 		attributes = append(attributes, otelAttribute(k, v)...)
 	}
 
-	lrc := otel.LogRecordConfig{
-		Timestamp:            &now,
-		ObservedTimestamp:    now,
-		TraceId:              &traceID,
-		SpanId:               &spanID,
-		TraceFlags:           &traceFlags,
-		SeverityText:         &severityText,
-		SeverityNumber:       &severityNumber,
-		BodyAny:              &msg,
-		Resource:             nil,
-		InstrumentationScope: &instrumentationScope,
-		Attributes:           &attributes,
-	}
+	//lrc := otel.LogRecordConfig{
+	//	Timestamp:            &now,
+	//	ObservedTimestamp:    now,
+	//	TraceId:              &traceID,
+	//	SpanId:               &spanID,
+	//	TraceFlags:           &traceFlags,
+	//	SeverityText:         &severityText,
+	//	SeverityNumber:       &severityNumber,
+	//	BodyAny:              &msg,
+	//	Resource:             nil,
+	//	InstrumentationScope: &instrumentationScope,
+	//	Attributes:           &attributes,
+	//}
+	//r := otel.NewLogRecord(lrc)
 
-	r := otel.NewLogRecord(lrc)
-	h.Emit(r)
+	r := logs.Record{}
+	r.SetTimestamp(now)
+	r.SetObservedTimestamp(now)
+	r.SetSeverity(logs.Severity(severityNumber))
+	r.SetBody(logs.StringValue(msg))
+	r.AddAttributes(attributes...)
+	h.Emit(ctx, r)
 }

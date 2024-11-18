@@ -10,8 +10,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/agoda-com/opentelemetry-logs-go/exporters/stdout/stdoutlogs"
-	sdk "github.com/agoda-com/opentelemetry-logs-go/sdk/logs"
+	"go.opentelemetry.io/otel/exporters/stdout/stdoutlog"
+	sdk "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	oteltrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
@@ -34,42 +34,41 @@ func newResource() *resource.Resource {
 	)
 }
 
-func TestZerologHook(t *testing.T) {
-	ctx := context.Background()
-	var buf bytes.Buffer
+func setupLogProvider() (*bytes.Buffer, *sdk.LoggerProvider) {
+	var output bytes.Buffer
 
-	// configure opentelemetry logger provider
-	logExporter, _ := stdoutlogs.NewExporter(stdoutlogs.WithWriter(&buf))
+	logExporter, _ := stdoutlog.New(stdoutlog.WithWriter(&output))
 	loggerProvider := sdk.NewLoggerProvider(
-		sdk.WithSyncer(logExporter), // use syncer to make sure all logs are flushed before test ends
+		// use syncer to make sure all logs are flushed before test ends
+		sdk.WithProcessor(sdk.NewSimpleProcessor(logExporter)),
 		sdk.WithResource(newResource()),
 	)
 
+	return &output, loggerProvider
+}
+
+func TestZerologHook(t *testing.T) {
+	ctx := context.Background()
+	output, loggerProvider := setupLogProvider()
+
 	hook := NewHook(loggerProvider)
-	log := log.Hook(hook)
-	log.Info().Ctx(ctx).Str("key", "value").Msg("hello zerolog")
+	logger := log.Hook(hook)
+	logger.Info().Ctx(ctx).Str("key", "value").Msg("hello zerolog")
 
 	_ = loggerProvider.Shutdown(ctx)
 
-	actual := buf.String()
-	assert.Contains(t, actual, "INFO")                                                               // ensure th log level
+	actual := output.String()
+	assert.Contains(t, actual, "INFO")                                                               // ensure th logger level
 	assert.Contains(t, actual, "hello zerolog")                                                      // ensure the message
 	assert.Contains(t, actual, "scopeInfo: github.com/agoda-com/opentelemetry-go/otelzerolog:0.0.1") // ensure the scope info
 	assert.Contains(t, actual, "service.name=otelzerolog-example")                                   // ensure the resource attributes
 	assert.Contains(t, actual, "service.version=1.0.0")                                              // ensure the resource attributes
 	assert.Contains(t, actual, "level=info")                                                         // ensure the severity attributes
-	assert.Contains(t, actual, "key=value")                                                          // ensure the log fields
+	assert.Contains(t, actual, "key=value")                                                          // ensure the logger fields
 }
 
 func TestZerologHook_ValidSpan(t *testing.T) {
-	var buf bytes.Buffer
-
-	// configure opentelemetry logger provider
-	logExporter, _ := stdoutlogs.NewExporter(stdoutlogs.WithWriter(&buf))
-	loggerProvider := sdk.NewLoggerProvider(
-		sdk.WithSyncer(logExporter), // use syncer to make sure all logs are flushed before test ends
-		sdk.WithResource(newResource()),
-	)
+	output, loggerProvider := setupLogProvider()
 
 	// create a span
 	tracerProvider := oteltrace.NewTracerProvider(oteltrace.WithResource(newResource()))
@@ -78,8 +77,8 @@ func TestZerologHook_ValidSpan(t *testing.T) {
 	defer span.End()
 
 	hook := NewHook(loggerProvider)
-	log := log.Hook(hook)
-	log.Warn().Ctx(ctx).
+	logger := log.Hook(hook)
+	logger.Info().Ctx(ctx).
 		Str("key", "value").
 		Strs("strs", []string{"1", "2", "3"}).
 		Stringer("stringer", &User{}).
@@ -101,10 +100,10 @@ func TestZerologHook_ValidSpan(t *testing.T) {
 		Err(fmt.Errorf("new error")).
 		Msg("hello zerolog")
 
-	actual := buf.String()
+	actual := output.String()
 	assert.Contains(t, actual, span.SpanContext().SpanID().String())  // ensure the spanID is logged
 	assert.Contains(t, actual, span.SpanContext().TraceID().String()) // ensure the traceID is logged
 
-	log.Error().Ctx(ctx).Str("key", "value").Discard().Msg("this should not be logged")
+	logger.Error().Ctx(ctx).Str("key", "value").Discard().Msg("this should not be logged")
 	_ = loggerProvider.Shutdown(ctx)
 }
